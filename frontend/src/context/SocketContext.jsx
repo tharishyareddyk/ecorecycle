@@ -10,7 +10,7 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (user) {
-      socketRef.current = io('http://localhost:5000', { transports: ['websocket'] });
+      socketRef.current = io('https://ecorecycle-production.up.railway.app', { transports: ['websocket'] });
       socketRef.current.emit('register', user._id);
     }
     return () => {

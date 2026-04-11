@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://ecorecycle-production.up.railway.app/api',
 });
 
 // Attach JWT token to every request
