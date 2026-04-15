@@ -76,16 +76,6 @@ export default function Login() {
           Don't have an account?{' '}
           <Link to="/register" className="text-primary-600 font-medium hover:underline">Create one</Link>
         </p>
-
-        {/* Demo credentials */}
-        <div className="mt-6 card bg-primary-50 border-primary-100">
-          <p className="text-xs font-semibold text-primary-700 mb-2">Demo Accounts:</p>
-          <div className="space-y-1 text-xs text-primary-600">
-            <div>User: user@demo.com / password123</div>
-            <div>Recycler: recycler@demo.com / password123</div>
-            <div>Admin: admin@demo.com / password123</div>
-          </div>
-        </div>
       </div>
     </div>
   );
