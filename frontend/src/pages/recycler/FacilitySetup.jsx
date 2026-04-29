@@ -4,7 +4,6 @@ import L from 'leaflet';
 import api from '../../utils/api';
 import { WASTE_CATEGORIES } from '../../utils/constants';
 
-// Fix default Leaflet marker icons
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -21,12 +20,9 @@ const CERT_TYPES = [
   'Other',
 ];
 
-// Component that listens for map clicks and sets the marker
 function MapClickHandler({ onLocationPick }) {
   useMapEvents({
-    click(e) {
-      onLocationPick(e.latlng.lat, e.latlng.lng);
-    },
+    click(e) { onLocationPick(e.latlng.lat, e.latlng.lng); },
   });
   return null;
 }
@@ -37,7 +33,6 @@ export default function FacilitySetup() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // 'gps' | 'manual' | 'map'
   const [locationMethod, setLocationMethod] = useState('gps');
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
@@ -53,8 +48,11 @@ export default function FacilitySetup() {
   });
 
   const [newCert, setNewCert] = useState({
-    name: '', issuedBy: '', validUntil: '', documentBase64: '', fileName: ''
+    name: '', issuedBy: '', validUntil: '', documentUrl: '', fileName: ''
   });
+
+  // ── NEW: track upload state per cert ──
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     api.get('/recycler/stats').then(r => {
@@ -74,7 +72,6 @@ export default function FacilitySetup() {
               compensationRates: f.compensationRates || {},
               certifications: f.certifications || [],
             });
-            // Pre-fill manual fields if location exists
             const coords = f.location?.coordinates;
             if (coords && coords[0] !== 0) {
               setManualLat(coords[1].toString());
@@ -86,12 +83,10 @@ export default function FacilitySetup() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Helper to update location in form
   const applyCoords = (lat, lng) => {
     setForm(f => ({ ...f, location: { type: 'Point', coordinates: [lng, lat] } }));
   };
 
-  // GPS method
   const useMyLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => {
@@ -109,7 +104,6 @@ export default function FacilitySetup() {
     }
   };
 
-  // Manual coordinate entry
   const applyManualCoords = () => {
     const lat = parseFloat(manualLat);
     const lng = parseFloat(manualLng);
@@ -121,7 +115,6 @@ export default function FacilitySetup() {
     setMsg('✅ Coordinates set!');
   };
 
-  // Map click handler
   const handleMapPick = (lat, lng) => {
     applyCoords(lat, lng);
     setManualLat(lat.toFixed(6));
@@ -142,22 +135,34 @@ export default function FacilitySetup() {
     }));
   };
 
-  const handleCertFile = (e) => {
+  // ── CHANGED: Upload to Cloudinary via backend, get back a real URL ──
+  const handleCertFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { setMsg('❌ File too large. Max 5MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setNewCert(c => ({ ...c, documentBase64: ev.target.result, fileName: file.name }));
-    };
-    reader.readAsDataURL(file);
+
+    setUploading(true);
+    setMsg('⏳ Uploading document...');
+    try {
+      const formData = new FormData();
+      formData.append('certificate', file);
+      const { data } = await api.post('/upload/certificate', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setNewCert(c => ({ ...c, documentUrl: data.url, fileName: data.fileName }));
+      setMsg('✅ Document uploaded successfully!');
+    } catch (err) {
+      setMsg('❌ Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const addCertification = () => {
     if (!newCert.name || !newCert.issuedBy || !newCert.validUntil) {
       setMsg('❌ Please fill in all certification fields.'); return;
     }
-    if (!newCert.documentBase64) {
+    if (!newCert.documentUrl) {
       setMsg('❌ Please upload the certification document.'); return;
     }
     setForm(f => ({
@@ -166,11 +171,11 @@ export default function FacilitySetup() {
         name: newCert.name,
         issuedBy: newCert.issuedBy,
         validUntil: newCert.validUntil,
-        documentUrl: newCert.documentBase64,
+        documentUrl: newCert.documentUrl,   // ← real Cloudinary URL now
         fileName: newCert.fileName,
       }]
     }));
-    setNewCert({ name: '', issuedBy: '', validUntil: '', documentBase64: '', fileName: '' });
+    setNewCert({ name: '', issuedBy: '', validUntil: '', documentUrl: '', fileName: '' });
     setMsg('✅ Certification added!');
   };
 
@@ -215,7 +220,6 @@ export default function FacilitySetup() {
         <p className="text-gray-500 mt-1">{facility ? 'Update your facility information' : 'Register your recycling facility on EcoRecycle'}</p>
       </div>
 
-      {/* Verification status */}
       {facility && (
         <div className={`rounded-2xl p-4 flex items-center gap-3 ${facility.isVerified
           ? 'bg-emerald-50 border-2 border-emerald-200'
@@ -237,6 +241,8 @@ export default function FacilitySetup() {
       {msg && (
         <div className={`text-sm px-4 py-3 rounded-xl font-medium ${msg.startsWith('✅')
           ? 'bg-emerald-50 border-2 border-emerald-200 text-emerald-800'
+          : msg.startsWith('⏳')
+          ? 'bg-blue-50 border-2 border-blue-200 text-blue-800'
           : 'bg-red-50 border-2 border-red-200 text-red-800'}`}>{msg}</div>
       )}
 
@@ -264,7 +270,6 @@ export default function FacilitySetup() {
         {/* Address & Location */}
         <div className="card space-y-4">
           <div className="section-title">📍 Address & GPS Location</div>
-
           <input className="input" placeholder="Street / Area" value={form.address.street} onChange={e => setForm(f => ({ ...f, address: { ...f.address, street: e.target.value } }))} />
           <div className="grid grid-cols-2 gap-3">
             <input className="input" placeholder="City" value={form.address.city} onChange={e => setForm(f => ({ ...f, address: { ...f.address, city: e.target.value } }))} required />
@@ -272,7 +277,6 @@ export default function FacilitySetup() {
           </div>
           <input className="input" placeholder="PIN Code" value={form.address.pincode} onChange={e => setForm(f => ({ ...f, address: { ...f.address, pincode: e.target.value } }))} />
 
-          {/* Location method selector */}
           <div>
             <label className="label">Set GPS Coordinates</label>
             <div className="grid grid-cols-3 gap-2 mb-3">
@@ -281,58 +285,38 @@ export default function FacilitySetup() {
                 { value: 'manual', icon: '⌨️', label: 'Enter Coords' },
                 { value: 'map', icon: '🗺️', label: 'Pick on Map' },
               ].map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setLocationMethod(opt.value)}
+                <button key={opt.value} type="button" onClick={() => setLocationMethod(opt.value)}
                   className={`py-2 px-3 rounded-xl border-2 text-sm font-medium transition-all flex flex-col items-center gap-1
-                    ${locationMethod === opt.value
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
-                >
+                    ${locationMethod === opt.value ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
                   <span className="text-lg">{opt.icon}</span>
                   {opt.label}
                 </button>
               ))}
             </div>
 
-            {/* GPS method */}
             {locationMethod === 'gps' && (
               <div className="flex items-center gap-3">
                 <button type="button" className="btn-secondary text-sm py-2" onClick={useMyLocation}>
                   📡 Use My Current Location
                 </button>
-                <span className="text-xs text-gray-400">
-                  Requires browser permission
-                </span>
+                <span className="text-xs text-gray-400">Requires browser permission</span>
               </div>
             )}
 
-            {/* Manual coordinate entry */}
             {locationMethod === 'manual' && (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="label">Latitude</label>
-                    <input
-                      className="input font-mono"
-                      placeholder="e.g. 17.3850"
-                      value={manualLat}
-                      onChange={e => setManualLat(e.target.value)}
-                    />
+                    <input className="input font-mono" placeholder="e.g. 17.3850" value={manualLat} onChange={e => setManualLat(e.target.value)} />
                   </div>
                   <div>
                     <label className="label">Longitude</label>
-                    <input
-                      className="input font-mono"
-                      placeholder="e.g. 78.4867"
-                      value={manualLng}
-                      onChange={e => setManualLng(e.target.value)}
-                    />
+                    <input className="input font-mono" placeholder="e.g. 78.4867" value={manualLng} onChange={e => setManualLng(e.target.value)} />
                   </div>
                 </div>
                 <p className="text-xs text-gray-400">
-                  💡 You can find coordinates via <a href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">Google Maps</a> → right-click your location → copy the numbers shown.
+                  💡 Find coordinates via <a href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">Google Maps</a> → right-click your location → copy the numbers shown.
                 </p>
                 <button type="button" className="btn-secondary text-sm py-2" onClick={applyManualCoords}>
                   ✅ Set These Coordinates
@@ -340,37 +324,24 @@ export default function FacilitySetup() {
               </div>
             )}
 
-            {/* Map picker */}
             {locationMethod === 'map' && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-500">🖱️ Click anywhere on the map to pin your facility's location.</p>
                 <div className="rounded-xl overflow-hidden border-2 border-gray-200" style={{ height: '300px' }}>
-                  <MapContainer
-                    center={locationSet ? [currentLat, currentLng] : [17.385, 78.486]}
-                    zoom={locationSet ? 15 : 12}
-                    style={{ height: '100%', width: '100%' }}
-                  >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
+                  <MapContainer center={locationSet ? [currentLat, currentLng] : [17.385, 78.486]} zoom={locationSet ? 15 : 12} style={{ height: '100%', width: '100%' }}>
+                    <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     <MapClickHandler onLocationPick={handleMapPick} />
-                    {locationSet && (
-                      <Marker position={[currentLat, currentLng]} />
-                    )}
+                    {locationSet && <Marker position={[currentLat, currentLng]} />}
                   </MapContainer>
                 </div>
               </div>
             )}
 
-            {/* Location status indicator — always visible */}
             <div className={`mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-lg
               ${locationSet ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
               <span>{locationSet ? '✅' : '⚠️'}</span>
               <span className="font-mono">
-                {locationSet
-                  ? `Lat: ${currentLat.toFixed(5)}, Lng: ${currentLng.toFixed(5)}`
-                  : 'No location set — required for map visibility'}
+                {locationSet ? `Lat: ${currentLat.toFixed(5)}, Lng: ${currentLng.toFixed(5)}` : 'No location set — required for map visibility'}
               </span>
             </div>
           </div>
@@ -395,9 +366,7 @@ export default function FacilitySetup() {
           <div className="grid grid-cols-2 gap-2">
             {WASTE_CATEGORIES.map(cat => (
               <label key={cat.value} className={`flex items-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all
-                ${form.acceptedWasteTypes.includes(cat.value)
-                  ? 'border-emerald-400 bg-emerald-50'
-                  : 'border-gray-200 hover:border-gray-300'}`}>
+                ${form.acceptedWasteTypes.includes(cat.value) ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
                 <input type="checkbox" className="sr-only" checked={form.acceptedWasteTypes.includes(cat.value)} onChange={() => toggleWasteType(cat.value)} />
                 <span className="text-lg">{cat.icon}</span>
                 <span className="text-xs font-medium text-gray-700">{cat.label}</span>
@@ -445,6 +414,13 @@ export default function FacilitySetup() {
                       Issued by: {cert.issuedBy} · Valid until: {cert.validUntil ? new Date(cert.validUntil).toLocaleDateString('en-IN') : '—'}
                     </div>
                     {cert.fileName && <div className="text-xs text-gray-500 mt-0.5">📎 {cert.fileName}</div>}
+                    {/* ── NEW: preview link for already-uploaded certs ── */}
+                    {cert.documentUrl && (
+                      <a href={cert.documentUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 underline mt-0.5 inline-block">
+                        👁️ Preview document
+                      </a>
+                    )}
                   </div>
                   <button type="button" onClick={() => removeCert(i)} className="text-red-400 hover:text-red-600 text-sm font-bold ml-3">✕</button>
                 </div>
@@ -474,17 +450,25 @@ export default function FacilitySetup() {
             </div>
             <div>
               <label className="label">Upload Document (PDF / Image, max 5MB)</label>
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleCertFile}
-                className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" />
-              {newCert.fileName && <div className="text-xs text-emerald-600 mt-1">✅ {newCert.fileName} ready to upload</div>}
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png"
+                onChange={handleCertFile}
+                disabled={uploading}
+                className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer disabled:opacity-50" />
+              {uploading && <div className="text-xs text-blue-600 mt-1">⏳ Uploading to cloud...</div>}
+              {!uploading && newCert.fileName && newCert.documentUrl && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-emerald-600">✅ {newCert.fileName} uploaded</span>
+                  <a href={newCert.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">Preview</a>
+                </div>
+              )}
             </div>
-            <button type="button" className="btn-secondary text-sm w-full" onClick={addCertification}>
+            <button type="button" className="btn-secondary text-sm w-full" onClick={addCertification} disabled={uploading}>
               ➕ Add This Certification
             </button>
           </div>
         </div>
 
-        <button type="submit" className="btn-primary w-full py-3 text-base" disabled={saving}>
+        <button type="submit" className="btn-primary w-full py-3 text-base" disabled={saving || uploading}>
           {saving ? '⏳ Saving...' : facility ? '💾 Update Facility' : '🏭 Register Facility'}
         </button>
       </form>
