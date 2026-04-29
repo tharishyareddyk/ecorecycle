@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../utils/api';
@@ -6,7 +7,7 @@ import { formatCurrency } from '../../utils/constants';
 export default function RecyclerDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [popup, setPopup] = useState(null); // { type: 'approved' | 'rejected', reason? }
+  const [popup, setPopup] = useState(null);
 
   useEffect(() => {
     api.get('/recycler/stats').then(r => {
@@ -27,7 +28,6 @@ export default function RecyclerDashboard() {
           localStorage.setItem(seenKey, 'rejected');
         }
       } else {
-        // If status changed since last seen, show again
         if (facility.isVerified && alreadySeen !== 'approved') {
           setPopup({ type: 'approved' });
           localStorage.setItem(seenKey, 'approved');
@@ -45,7 +45,6 @@ export default function RecyclerDashboard() {
   return (
     <div className="space-y-6">
 
-      {/* ── Approval / Rejection Popup ── */}
       {popup && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 text-center space-y-4">
@@ -57,17 +56,15 @@ export default function RecyclerDashboard() {
                   Your facility <strong>{facility?.name}</strong> has been <span className="text-green-600 font-semibold">verified and approved</span> by EcoRecycle admin.
                 </p>
                 <p className="text-sm text-gray-500">
-                  You're now live on the platform — users can find your facility and submit e-waste requests!
+                  {"You're now live on the platform — users can find your facility and submit e-waste requests!"}
                 </p>
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-left text-sm text-green-800 space-y-1">
                   <div>✅ Facility visible on the map</div>
                   <div>✅ Users can submit requests to you</div>
-                  <div>✅ You'll receive notifications for new requests</div>
+                  <div>{"✅ You'll receive notifications for new requests"}</div>
                 </div>
-                <button
-                  onClick={() => setPopup(null)}
-                  className="btn-primary w-full py-3 text-base">
-                  Let's Go! 🚀
+                <button onClick={() => setPopup(null)} className="btn-primary w-full py-3 text-base">
+                  {"Let's Go! 🚀"}
                 </button>
               </>
             ) : (
@@ -87,15 +84,10 @@ export default function RecyclerDashboard() {
                   Please update your facility details and certifications, then resubmit for review.
                 </p>
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => setPopup(null)}
-                    className="flex-1 btn-secondary py-2.5">
+                  <button onClick={() => setPopup(null)} className="flex-1 btn-secondary py-2.5">
                     Dismiss
                   </button>
-                  <Link
-                    to="/recycler/facility"
-                    onClick={() => setPopup(null)}
-                    className="flex-1 btn-primary py-2.5 text-center">
+                  <Link to="/recycler/facility" onClick={() => setPopup(null)} className="flex-1 btn-primary py-2.5 text-center">
                     Update & Resubmit
                   </Link>
                 </div>
@@ -105,18 +97,14 @@ export default function RecyclerDashboard() {
         </div>
       )}
 
-      {/* Dashboard content */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Recycler Dashboard</h1>
         <p className="text-gray-500 mt-1">{facility?.name || 'Your Facility'}</p>
       </div>
 
-      {/* Facility status banner (if not verified) */}
       {facility && !facility.isVerified && (
         <div className={`rounded-2xl p-4 flex items-center gap-3 border-2
-          ${facility.isRejected
-            ? 'bg-red-50 border-red-200'
-            : 'bg-amber-50 border-amber-200'}`}>
+          ${facility.isRejected ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
           <span className="text-2xl">{facility.isRejected ? '❌' : '⏳'}</span>
           <div className="flex-1">
             <div className={`font-bold text-sm ${facility.isRejected ? 'text-red-800' : 'text-amber-800'}`}>
@@ -125,7 +113,7 @@ export default function RecyclerDashboard() {
             <div className={`text-xs mt-0.5 ${facility.isRejected ? 'text-red-600' : 'text-amber-600'}`}>
               {facility.isRejected
                 ? `Reason: ${facility.rejectionReason || 'See notification for details.'}`
-                : 'Admin is reviewing your certifications. You'll be notified once verified.'}
+                : "Admin is reviewing your certifications. You'll be notified once verified."}
             </div>
           </div>
           {facility.isRejected && (
