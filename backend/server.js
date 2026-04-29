@@ -57,6 +57,7 @@ app.use('/api/facilities', require('./routes/facility'));
 app.use('/api/waste', require('./routes/waste'));
 app.use('/api/recycler', require('./routes/recycler'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/upload', require('./routes/upload'));
 
 // Health check
 app.get('/api/health', (req, res) => {
