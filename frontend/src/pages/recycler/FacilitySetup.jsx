@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
 import api from '../../utils/api';
 import { WASTE_CATEGORIES } from '../../utils/constants';
+
+// Fix default Leaflet marker icons
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 const CERT_TYPES = [
   'CPCB Authorization (Central Pollution Control Board)',
@@ -11,11 +21,26 @@ const CERT_TYPES = [
   'Other',
 ];
 
+// Component that listens for map clicks and sets the marker
+function MapClickHandler({ onLocationPick }) {
+  useMapEvents({
+    click(e) {
+      onLocationPick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 export default function FacilitySetup() {
   const [facility, setFacility] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+
+  // 'gps' | 'manual' | 'map'
+  const [locationMethod, setLocationMethod] = useState('gps');
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
 
   const [form, setForm] = useState({
     name: '', email: '', phone: '',
@@ -27,7 +52,6 @@ export default function FacilitySetup() {
     certifications: [],
   });
 
-  // New certification being added
   const [newCert, setNewCert] = useState({
     name: '', issuedBy: '', validUntil: '', documentBase64: '', fileName: ''
   });
@@ -50,20 +74,64 @@ export default function FacilitySetup() {
               compensationRates: f.compensationRates || {},
               certifications: f.certifications || [],
             });
+            // Pre-fill manual fields if location exists
+            const coords = f.location?.coordinates;
+            if (coords && coords[0] !== 0) {
+              setManualLat(coords[1].toString());
+              setManualLng(coords[0].toString());
+            }
           }
         });
       }
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
+  // Helper to update location in form
+  const applyCoords = (lat, lng) => {
+    setForm(f => ({ ...f, location: { type: 'Point', coordinates: [lng, lat] } }));
+  };
+
+  // GPS method
   const useMyLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => {
-        setForm(f => ({ ...f, location: { type: 'Point', coordinates: [pos.coords.longitude, pos.coords.latitude] } }));
-        setMsg('✅ Location captured!');
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        applyCoords(lat, lng);
+        setManualLat(lat.toFixed(6));
+        setManualLng(lng.toFixed(6));
+        setMsg('✅ Location captured from GPS!');
+      }, () => {
+        setMsg('❌ Could not get GPS location. Try another method.');
       });
+    } else {
+      setMsg('❌ Geolocation not supported in this browser.');
     }
   };
+
+  // Manual coordinate entry
+  const applyManualCoords = () => {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setMsg('❌ Invalid coordinates. Latitude must be −90 to 90, Longitude −180 to 180.');
+      return;
+    }
+    applyCoords(lat, lng);
+    setMsg('✅ Coordinates set!');
+  };
+
+  // Map click handler
+  const handleMapPick = (lat, lng) => {
+    applyCoords(lat, lng);
+    setManualLat(lat.toFixed(6));
+    setManualLng(lng.toFixed(6));
+    setMsg('✅ Location pinned on map!');
+  };
+
+  const locationSet = form.location.coordinates[0] !== 0 || form.location.coordinates[1] !== 0;
+  const currentLat = form.location.coordinates[1];
+  const currentLng = form.location.coordinates[0];
 
   const toggleWasteType = (type) => {
     setForm(f => ({
@@ -74,7 +142,6 @@ export default function FacilitySetup() {
     }));
   };
 
-  // Handle certification document upload (convert to base64)
   const handleCertFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -194,22 +261,118 @@ export default function FacilitySetup() {
           </div>
         </div>
 
-        {/* Address */}
+        {/* Address & Location */}
         <div className="card space-y-4">
           <div className="section-title">📍 Address & GPS Location</div>
+
           <input className="input" placeholder="Street / Area" value={form.address.street} onChange={e => setForm(f => ({ ...f, address: { ...f.address, street: e.target.value } }))} />
           <div className="grid grid-cols-2 gap-3">
             <input className="input" placeholder="City" value={form.address.city} onChange={e => setForm(f => ({ ...f, address: { ...f.address, city: e.target.value } }))} required />
             <input className="input" placeholder="State" value={form.address.state} onChange={e => setForm(f => ({ ...f, address: { ...f.address, state: e.target.value } }))} />
           </div>
           <input className="input" placeholder="PIN Code" value={form.address.pincode} onChange={e => setForm(f => ({ ...f, address: { ...f.address, pincode: e.target.value } }))} />
-          <div className="flex items-center gap-3">
-            <button type="button" className="btn-secondary text-sm py-2" onClick={useMyLocation}>📍 Use My Location</button>
-            <span className="text-xs text-gray-400">
-              {form.location.coordinates[0] !== 0
-                ? `✅ Lat: ${form.location.coordinates[1].toFixed(4)}, Lng: ${form.location.coordinates[0].toFixed(4)}`
-                : '⚠️ No location set — required for map visibility'}
-            </span>
+
+          {/* Location method selector */}
+          <div>
+            <label className="label">Set GPS Coordinates</label>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {[
+                { value: 'gps', icon: '📡', label: 'Auto-detect' },
+                { value: 'manual', icon: '⌨️', label: 'Enter Coords' },
+                { value: 'map', icon: '🗺️', label: 'Pick on Map' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setLocationMethod(opt.value)}
+                  className={`py-2 px-3 rounded-xl border-2 text-sm font-medium transition-all flex flex-col items-center gap-1
+                    ${locationMethod === opt.value
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                >
+                  <span className="text-lg">{opt.icon}</span>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* GPS method */}
+            {locationMethod === 'gps' && (
+              <div className="flex items-center gap-3">
+                <button type="button" className="btn-secondary text-sm py-2" onClick={useMyLocation}>
+                  📡 Use My Current Location
+                </button>
+                <span className="text-xs text-gray-400">
+                  Requires browser permission
+                </span>
+              </div>
+            )}
+
+            {/* Manual coordinate entry */}
+            {locationMethod === 'manual' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Latitude</label>
+                    <input
+                      className="input font-mono"
+                      placeholder="e.g. 17.3850"
+                      value={manualLat}
+                      onChange={e => setManualLat(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Longitude</label>
+                    <input
+                      className="input font-mono"
+                      placeholder="e.g. 78.4867"
+                      value={manualLng}
+                      onChange={e => setManualLng(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">
+                  💡 You can find coordinates via <a href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">Google Maps</a> → right-click your location → copy the numbers shown.
+                </p>
+                <button type="button" className="btn-secondary text-sm py-2" onClick={applyManualCoords}>
+                  ✅ Set These Coordinates
+                </button>
+              </div>
+            )}
+
+            {/* Map picker */}
+            {locationMethod === 'map' && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">🖱️ Click anywhere on the map to pin your facility's location.</p>
+                <div className="rounded-xl overflow-hidden border-2 border-gray-200" style={{ height: '300px' }}>
+                  <MapContainer
+                    center={locationSet ? [currentLat, currentLng] : [17.385, 78.486]}
+                    zoom={locationSet ? 15 : 12}
+                    style={{ height: '100%', width: '100%' }}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <MapClickHandler onLocationPick={handleMapPick} />
+                    {locationSet && (
+                      <Marker position={[currentLat, currentLng]} />
+                    )}
+                  </MapContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Location status indicator — always visible */}
+            <div className={`mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-lg
+              ${locationSet ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+              <span>{locationSet ? '✅' : '⚠️'}</span>
+              <span className="font-mono">
+                {locationSet
+                  ? `Lat: ${currentLat.toFixed(5)}, Lng: ${currentLng.toFixed(5)}`
+                  : 'No location set — required for map visibility'}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -265,14 +428,13 @@ export default function FacilitySetup() {
           </div>
         )}
 
-        {/* ── CERTIFICATIONS (mandatory) ─────────────────── */}
+        {/* Certifications */}
         <div className="card space-y-4">
           <div className="section-title">📜 Certifications & Permits</div>
           <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-3 text-sm text-amber-800">
             <strong>⚠️ Mandatory:</strong> E-waste recycling facilities in India must have authorization from CPCB or SPCB. Upload your certificates below. Admin will verify before your facility goes live.
           </div>
 
-          {/* Existing certificates */}
           {form.certifications.length > 0 && (
             <div className="space-y-2">
               {form.certifications.map((cert, i) => (
@@ -282,9 +444,7 @@ export default function FacilitySetup() {
                     <div className="text-xs text-emerald-700 mt-0.5">
                       Issued by: {cert.issuedBy} · Valid until: {cert.validUntil ? new Date(cert.validUntil).toLocaleDateString('en-IN') : '—'}
                     </div>
-                    {cert.fileName && (
-                      <div className="text-xs text-gray-500 mt-0.5">📎 {cert.fileName}</div>
-                    )}
+                    {cert.fileName && <div className="text-xs text-gray-500 mt-0.5">📎 {cert.fileName}</div>}
                   </div>
                   <button type="button" onClick={() => removeCert(i)} className="text-red-400 hover:text-red-600 text-sm font-bold ml-3">✕</button>
                 </div>
@@ -292,7 +452,6 @@ export default function FacilitySetup() {
             </div>
           )}
 
-          {/* Add new certification */}
           <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 space-y-3">
             <div className="text-sm font-semibold text-gray-700">➕ Add Certification</div>
             <div>
@@ -317,9 +476,7 @@ export default function FacilitySetup() {
               <label className="label">Upload Document (PDF / Image, max 5MB)</label>
               <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleCertFile}
                 className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" />
-              {newCert.fileName && (
-                <div className="text-xs text-emerald-600 mt-1">✅ {newCert.fileName} ready to upload</div>
-              )}
+              {newCert.fileName && <div className="text-xs text-emerald-600 mt-1">✅ {newCert.fileName} ready to upload</div>}
             </div>
             <button type="button" className="btn-secondary text-sm w-full" onClick={addCertification}>
               ➕ Add This Certification
