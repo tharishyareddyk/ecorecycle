@@ -1,6 +1,16 @@
 const User = require('../models/User');
 const Facility = require('../models/Facility');
 const WasteRequest = require('../models/WasteRequest');
+const Notification = require('../models/Notification');
+
+// Helper — send notification to a user and push via socket if online
+const sendNotification = async (req, recipientId, type, title, message, extra = {}) => {
+  const notif = await Notification.create({ recipient: recipientId, type, title, message, ...extra });
+  const io = req.app.get('io');
+  const connectedUsers = req.app.get('connectedUsers');
+  const socketId = connectedUsers?.[recipientId.toString()];
+  if (io && socketId) io.to(socketId).emit('notification', notif);
+};
 
 // @desc  Get all users
 exports.getAllUsers = async (req, res) => {
@@ -29,14 +39,64 @@ exports.toggleUserStatus = async (req, res) => {
   }
 };
 
-// @desc  Verify/unverify facility
+// @desc  Approve facility
+// @route PUT /api/admin/facilities/:id/approve
+exports.approveFacility = async (req, res) => {
+  try {
+    const facility = await Facility.findById(req.params.id);
+    if (!facility) return res.status(404).json({ success: false, message: 'Facility not found' });
+
+    facility.isVerified = true;
+    facility.isRejected = false;
+    facility.rejectionReason = '';
+    await facility.save();
+
+    // Notify the recycler
+    await sendNotification(req, facility.registeredBy, 'system',
+      '🎉 Facility Approved!',
+      `Congratulations! Your facility "${facility.name}" has been verified and is now live on EcoRecycle. Users can now find and submit requests to your facility.`
+    );
+
+    res.json({ success: true, message: 'Facility approved', facility });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// @desc  Reject facility
+// @route PUT /api/admin/facilities/:id/reject
+exports.rejectFacility = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const facility = await Facility.findById(req.params.id);
+    if (!facility) return res.status(404).json({ success: false, message: 'Facility not found' });
+
+    facility.isVerified = false;
+    facility.isRejected = true;
+    facility.rejectionReason = reason || 'Your application did not meet our requirements.';
+    await facility.save();
+
+    // Notify the recycler
+    await sendNotification(req, facility.registeredBy, 'system',
+      '❌ Facility Application Rejected',
+      `Unfortunately, your facility "${facility.name}" was not approved. Reason: ${facility.rejectionReason} Please update your details and certifications and resubmit.`
+    );
+
+    res.json({ success: true, message: 'Facility rejected', facility });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// @desc  Legacy toggle (kept for compatibility)
 exports.verifyFacility = async (req, res) => {
   try {
     const facility = await Facility.findById(req.params.id);
     if (!facility) return res.status(404).json({ success: false, message: 'Facility not found' });
     facility.isVerified = !facility.isVerified;
+    if (facility.isVerified) { facility.isRejected = false; facility.rejectionReason = ''; }
     await facility.save();
-    res.json({ success: true, message: `Facility ${facility.isVerified ? 'verified' : 'unverified'}`, facility });
+    res.json({ success: true, facility });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -62,10 +122,7 @@ exports.getDashboardStats = async (req, res) => {
     res.json({
       success: true,
       stats: {
-        totalUsers,
-        totalFacilities,
-        totalRequests,
-        requestsByStatus,
+        totalUsers, totalFacilities, totalRequests, requestsByStatus,
         totalWasteRecycled: totalWasteRecycled[0]?.total || 0
       }
     });

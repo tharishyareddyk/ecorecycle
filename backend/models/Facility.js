@@ -32,7 +32,8 @@ const facilitySchema = new mongoose.Schema({
     name: String,
     issuedBy: String,
     validUntil: Date,
-    documentUrl: String
+    documentUrl: String,
+    fileName: String,
   }],
 
   operatingHours: {
@@ -45,13 +46,16 @@ const facilitySchema = new mongoose.Schema({
     date: Date,
     location: String,
     description: String,
-    maxCapacity: Number // kg
+    maxCapacity: Number
   }],
 
   isVerified: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
 
-  // Compensation rates per kg by waste type
+  // Rejection
+  isRejected: { type: Boolean, default: false },
+  rejectionReason: { type: String, default: '' },
+
   compensationRates: {
     mobile_phones: { type: Number, default: 50 },
     laptops: { type: Number, default: 80 },
